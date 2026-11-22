@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: batch-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5434/neighborroute_batches
+    username: neighborroute
+    password: local_dev_password
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+
+app:
+  clients:
+    order-service:
+      url: http://localhost:8080
+
+server:
+  port: 8081
