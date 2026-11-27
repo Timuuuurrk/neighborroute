@@ -1,0 +1,68 @@
+spring:
+  application:
+    name: batch-service
+
+  datasource:
+    url: jdbc:postgresql://localhost:5434/neighborroute_batches
+    username: neighborroute
+    password: local_dev_password
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: neighborroute-batch-v1
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  cache:
+    type: redis
+    cache-names:
+      - open-batches
+    redis:
+      time-to-live: 180s
+
+app:
+  clients:
+    order-service:
+      url: http://localhost:8080
+
+server:
+  port: 8081
+
+
+neighborroute:
+  outbox:
+    publisher:
+      enabled: true
+    delay-ms: 3000
+    initial-delay-ms: 10000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
+  endpoint:
+    health:
+      show-details: always
+
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true

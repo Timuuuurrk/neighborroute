@@ -1,0 +1,268 @@
+
+name: infra
+
+services:
+  postgres-orders:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: neighborroute_orders
+      POSTGRES_USER: neighborroute
+      POSTGRES_PASSWORD: local_dev_password
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - orders_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neighborroute -d neighborroute_orders"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres-batches:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: neighborroute_batches
+      POSTGRES_USER: neighborroute
+      POSTGRES_PASSWORD: local_dev_password
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - batches_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neighborroute -d neighborroute_batches"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres-telegram:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: neighborroute_telegram
+      POSTGRES_USER: neighborroute
+      POSTGRES_PASSWORD: ${TELEGRAM_DB_PASSWORD:?Set TELEGRAM_DB_PASSWORD}
+    ports:
+      - "127.0.0.1:5435:5432"
+    volumes:
+      - telegram_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neighborroute -d neighborroute_telegram"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+
+  kafka:
+    image: apache/kafka:4.1.2
+
+    ports:
+      - "127.0.0.1:9092:9092"
+
+    environment:
+      CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
+
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+
+      KAFKA_LISTENERS: "EXTERNAL://:9092,INTERNAL://:19092,CONTROLLER://:9093"
+
+      KAFKA_ADVERTISED_LISTENERS: "EXTERNAL://localhost:9092,INTERNAL://kafka:19092"
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "EXTERNAL:PLAINTEXT,INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
+
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@localhost:9093"
+
+      KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+    volumes:
+      - kafka_kraft_data:/tmp/kraft-combined-logs
+
+
+
+  order-service:
+    image: neighborroute/order-service:local
+
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-orders:5432/neighborroute_orders
+      SPRING_DATASOURCE_USERNAME: neighborroute
+      SPRING_DATASOURCE_PASSWORD: local_dev_password
+
+      NEIGHBORROUTE_BATCHSERVICE_BASEURL: http://batch-service:8081
+
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      SPRING_KAFKA_BOOTSTRAPSERVERS: kafka:19092
+
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      REDIS_HOST: redis
+
+      SERVER_PORT: 8080
+
+    depends_on:
+      postgres-orders:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+
+    restart: unless-stopped
+
+
+
+  batch-service:
+    image: neighborroute/batch-service:local
+
+    ports:
+      - "127.0.0.1:8081:8081"
+
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-batches:5432/neighborroute_batches
+      SPRING_DATASOURCE_USERNAME: neighborroute
+      SPRING_DATASOURCE_PASSWORD: local_dev_password
+
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      SPRING_KAFKA_BOOTSTRAPSERVERS: kafka:19092
+
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      REDIS_HOST: redis
+
+      SERVER_PORT: 8081
+      APP_CLIENTS_ORDERSERVICE_URL: http://order-service:8080
+
+    depends_on:
+      postgres-batches:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      order-service:
+        condition: service_started
+
+    restart: unless-stopped
+
+
+  telegram-bot:
+    image: neighborroute/telegram-bot:local
+
+    ports:
+      - "127.0.0.1:8082:8082"
+
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-telegram:5432/neighborroute_telegram
+      SPRING_DATASOURCE_USERNAME: neighborroute
+      SPRING_DATASOURCE_PASSWORD: ${TELEGRAM_DB_PASSWORD:?Set TELEGRAM_DB_PASSWORD}
+
+      JAVA_TOOL_OPTIONS: >-
+        -DsocksProxyHost=host.docker.internal
+        -DsocksProxyPort=10808
+        -DsocksNonProxyHosts=localhost|127.*|postgres-telegram|postgres-orders|postgres-batches|order-service|batch-service|kafka|redis
+        -Dhttp.nonProxyHosts=localhost|127.*|postgres-telegram|postgres-orders|postgres-batches|order-service|batch-service|kafka|redis
+      
+
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN}
+
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      SPRING_KAFKA_BOOTSTRAPSERVERS: kafka:19092
+
+      SERVICES_ORDER_BASEURL: http://order-service:8080/api/v1/orders
+      SERVICES_BATCH_BASEURL: http://batch-service:8081/api/v1/batches
+
+      SERVER_PORT: 8082
+
+    depends_on:
+      postgres-telegram:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      order-service:
+        condition: service_started
+      batch-service:
+        condition: service_started
+
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+
+    ports:
+      - "127.0.0.1:9090:9090"
+
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.0
+
+    ports:
+      - "127.0.0.1:3000:3000"
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+
+    depends_on:
+      - prometheus
+
+    restart: unless-stopped
+
+
+
+
+volumes:
+  orders_pg_data:
+    external: true
+    name: infra_orders_pg_data
+
+  batches_pg_data:
+    external: true
+    name: infra_batches_pg_data
+
+  telegram_pg_data:
+    external: true
+    name: neighborroute-telegram-pgdata
+
+  redis_data:
+    external: true
+    name: 2e48f7734a8912887732988804c0ec433c2a5bd49cfcc17be9de10e6ecc6bfb2
+
+
+  kafka_kraft_data:
+    external: true
+    name: neighborroute_kafka_kraft
+
+  prometheus_data:
+  grafana_data:
+
+
