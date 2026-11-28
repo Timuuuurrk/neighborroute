@@ -9,6 +9,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import com.neighborroute.orders.service.OrderCancellationCoordinator;
 
 import java.util.UUID;
 
@@ -24,6 +25,9 @@ class OrderControllerTest {
 
     @MockitoBean
     private OrderService orderService;
+
+    @MockitoBean
+    private OrderCancellationCoordinator cancellationCoordinator;
 
     @Test
     void shouldReturn409OnOptimisticLockingConflict() throws Exception {
