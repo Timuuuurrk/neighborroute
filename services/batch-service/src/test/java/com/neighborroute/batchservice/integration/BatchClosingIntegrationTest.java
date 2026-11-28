@@ -9,6 +9,7 @@ import com.neighborroute.batchservice.dto.CloseBatchResponse;
 import com.neighborroute.batchservice.dto.DeliverBatchResponse;
 import com.neighborroute.batchservice.repository.BatchRepository;
 import com.neighborroute.batchservice.service.*;
+import com.neighborroute.batchservice.exception.BatchNotOpenException;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -406,12 +407,13 @@ class BatchClosingIntegrationTest {
                     () -> joining.get(10, TimeUnit.SECONDS)
             );
 
-            ResponseStatusException cause = assertInstanceOf(
-                    ResponseStatusException.class,
+            BatchNotOpenException cause = assertInstanceOf(
+                    BatchNotOpenException.class,
                     exception.getCause()
             );
 
-            assertEquals(409, cause.getStatusCode().value());
+            assertEquals("Batch is not OPEN", cause.getMessage());
+
         }
 
         assertEquals("CLOSED", getStatus(batchId));

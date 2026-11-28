@@ -223,8 +223,7 @@ public class BatchService {
         );
 
         if (!"OPEN".equals(status)) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
+            throw new BatchNotOpenException(
                     "Batch is not OPEN"
             );
         }
